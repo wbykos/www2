@@ -1,0 +1,100 @@
+read_loop() ->
+	receive
+		{ok,Device,Digest,Socket} ->
+			case file:read(Device, 1024) of
+				{ok, Data} -> 
+					%%NewDigest = erlang:adler32(Digest, Data),
+					gproc:send({p,l, ws},{self(),ws,"1024"}),
+					gen_udp:send(Socket,"1.2.4.2",11112,Data),
+					self() ! {ok,Device,Digest,Socket},
+					read_loop();
+				eof ->
+					case file:close(Device) of
+						ok ->
+							[{_,CtrlSocket}] = ets:lookup(sockets, control),
+							gen_udp:send(CtrlSocket,"1.2.4.2",11111,list_to_binary(integer_to_list(Digest))),
+							gproc:send({p,l, ws},{self(),ws,"checksum " ++ io_lib:format("~p",[Digest])}),
+							case ets:match(files, {'$1',{status,reading},{pid,self()},{port,'_'}},1) of
+								{[[FileToClose]],_} ->
+									ets:delete(files,FileToClose),
+									io:format("Success close file, checksum is: ~p~n",[Digest]);
+								['$end_of_table'] ->
+									io:format("Error. No file to close.~n")
+							end;
+						{error, Reason} ->
+							io:format("Error close file: ~p~n", [Reason]),
+							exit(error_eof)
+					end,
+					
+					case gen_udp:close(Socket) of
+						ok ->
+							io:format("Success close data socket: ~p~n",[Socket]),
+							exit(all_good);
+						Any ->
+							io:format("Error close data socket: ~p~n",[Any])
+					end;
+				{error, Error} -> 
+					io:format("Error2 read file: ~p~n", [Error]),
+					ets:insert(file_tab, {current_file, ""}),
+					exit(error_read);
+				Any -> 
+					 io:format("Oops2: ~p~n", [Any]),
+					 ets:insert(file_tab, {current_file, ""}),
+					 exit(oops2)
+			end;
+		{start,File} ->
+			Device = case file:open(File, [read,raw,binary,{read_ahead,131072}]) of
+						{ok, D} ->
+							D;
+						A ->
+							io:format("Error. Can't open file.~p~n",[A]),
+							ets:delete(files,File),
+							exit(cant_open_file)
+						end,
+			[{_, {status,reading},{pid,_},{port,Port}}] = ets:lookup(files,File),
+			{ok, Socket} = gen_udp:open(Port, [binary,{active, false},{buffer, 65536}]),
+			case file:read(Device, 1024) of
+				{ok, Data} -> 
+				%%	io:format("Send data sock~p~n",[Data]),
+					Digest = erlang:adler32(Data),
+					self() ! {ok,Device,Digest,Socket},
+					read_loop();
+				eof ->
+					case file:close(Device) of
+						ok ->
+							[{_,CtrlSocket}] = ets:lookup(sockets, control),
+							gen_udp:send(CtrlSocket,"1.2.4.2",11111,"empty"),
+							gproc:send({p,l, ws},{self(),ws,"Empty file"}),
+							case ets:match(files, {'$1',{status,reading},{pid,self()},{port,'_'}},1) of
+								{[[FileToClose]],_} ->
+									ets:delete(files,FileToClose),
+									io:format("Success close empty file.~n");
+								['$end_of_table'] ->
+									io:format("Error. No empty file to close.~n")
+							end;
+						B ->
+							io:format("Error. Can't close empty file.~p",[B]),
+							ts:delete(files,File),
+							exit(file_error)
+					end,
+					
+					case gen_udp:close(Socket) of
+						ok ->
+							io:format("Success close empty socket: ~p~n",[Socket]);
+						Any ->
+							io:format("Error close empty socket: ~p~n",[Any])
+					end;
+				Any -> 
+					case ets:match(files, {'$1',{status,reading},{pid,self()},{port,'_'}},1) of
+						{[[FileToClose]],_} ->
+							ets:delete(files,FileToClose),
+							io:format("Read Error: ~p~n", [Any]);
+						['$end_of_table'] ->
+							io:format("Error. No empty file to close.~n")
+					end,
+					exit(oops)
+			end;			
+		Any ->
+			io:format("read_loop error: ~p~n",[Any]),
+			exit(read_loop_error)
+	end.

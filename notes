@@ -1,0 +1,50 @@
+HERE 
+[99,58,47,102,49,47,102,108,100,114,47,1103]
+ c  :  /   f  1  /   f   l   d   r   /  я
+work:
+from: c:/f1/f2/f3
+to: c/f4/f5
+
+
+ c:/f1/f2/f3/file
+ e:/f4/f5/
+
+erlang:length(filename:split("c:/f1")).
+erlang:length(filename:split(ToDoFolder)).
+
+lists:nthtail(2,filename:split([99,58,47,102,49,47,102,108,100,114,47,1103])).
+									file:rename([99,58,47,102,49,47,1103], filename:join(["c:/f2",filename:basename([99,58,47,102,49,47,1103])])).
+								filename:dirname([99,58,47,102,49,47,1103]).
+io:format("~tp~n",[unicode:characters_to_binary("c:\f1\я")]).
+filename:basename([99,58,47,102,49,47,1103]).
+[_|[_|K6]]=filename:split([99,58,47,102,49,47,102,108,100,114,47,1103]).
+filename:join(["c:/f2",K4]).
+filename:split(filename:join(["c:/f2",K6])).
+
+filename:join(lists:append(["c:/f2"],lists:nthtail(2,filename:split(FileToClose)))).
+
+unicode:characters_to_list([99,58,47,102,49,47,1103]).
+G = file:open("c:/f1/1.txt", [append]).
+file:open("c:\f1\1.txt").
+file:write_file("c:/f1/1.txt", "Abhimanyu", [append]).
+file:write_file("c:/f1/1.txt", unicode:characters_to_binary("c:\f1\я"), [append]).
+filelib:fold_files( ?ToDoFolder,".*",true,
+								fun(File2, Acc) ->
+									%%io:format("Files ~p~n", [File2]), 
+									ets:insert(files, {File2, {status,none}}),
+									Acc + 1
+					end, 0),
+
+
+%%  ets:match(files, '_').
+%%	ets:match(files, {'$1',none},1).
+%%	ets:select_count(files, ['_',[],[true]}]).
+%%	ets:info(files, size).
+%%ets:select(files, ['_',[],[true]]).
+%%	ets:match(files, {'$1',none},1).
+%% ets:match(program, '$1').
+%% ets:match(files, {'$1',{status,reading},{pid,'$2'}},1).
+%% ets:delete_object(files,)
+
+
+%%hexstring(<<X:128/big-unsigned-integer>>) -> lists:flatten(io_lib:format("~32.16.0b", [X])).

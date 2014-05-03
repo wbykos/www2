@@ -1,0 +1,16 @@
+1048576 is byte to mb
+
+
+9	   bytes
+99	   bytes
+999	   bytes
+9999       bytes = 9       kb         
+99999      bytes = 97      kb
+999999     bytes = 967     kb
+9999999    bytes = 9765    kb = 9    mb
+99999999   bytes = 97656   kb = 95   mb
+999999999  bytes = 976562  kb = 953  mb
+9999999999 bytes = 9765624 kb = 9536 mb = 9 gb
+
+
+

@@ -1,0 +1,1 @@
+"c:\Program Files\erl5.10.4\erts-5.10.4\bin\escript.exe" rebar compile
