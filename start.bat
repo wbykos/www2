@@ -1,1 +1,1 @@
-"c:\Program Files\erl5.10.4\erts-5.10.4\bin\erl.exe" -pa C:\www\ebin C:\www\deps\cowboy\ebin  C:\www\deps\ranch\ebin C:\www\deps\cowlib\ebin C:\www\deps\gproc\ebin C:\www\mimetypes\ranch\ebin -s websocket
+"C:\Program Files\erl6.0\bin\erl.exe" -pa C:\www2\ebin C:\www2\deps\cowboy\ebin  C:\www2\deps\ranch\ebin C:\www2\deps\cowlib\ebin C:\www2\deps\gproc\ebin C:\www2\mimetypes\ranch\ebin -s websocket

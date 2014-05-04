@@ -8,28 +8,36 @@
 -include_lib("kernel/include/file.hrl").
 
 -define(ControlPort, 11111).
--define(DstIp, "1.2.4.2").
+-define(DstIp, "1.2.4.129").
 -define(AvailablePorts, [11112,11113,11114,11115,11116]).
 -define(PacketSize, 1408).
 -define(ToDoFolder,"c:/f1").
 -define(CompletedFolder,"c:/f2").
 
--export([start/2, stop/1, dir_loop/0, file_loop/0, file_prep/0, read_loop/0,overhead/2,move_and_clean/1]).
+-export([start/2, stop/1, listen_CtrlSocket/1,listen_DataSocket/3,data_writer/0, dir_loop/0, file_loop/0, file_prep/0, read_loop/0,overhead/2,move_and_clean/1]).
 
 %% API.
 start(_Type, _Args) ->
 	ets:new(files, [public, named_table]),
 	ets:new(program, [public, named_table]),
-	register(dir_loop, spawn(fun() -> dir_loop() end)),
-	register(file_loop, spawn(fun() -> file_loop() end)),
-	case gen_udp:open(?ControlPort, [binary,{active, false}]) of
-		{ok, CtrlSocket} ->
-			ets:insert(program, {data,{coontrol_socket,CtrlSocket}}),
-			io:format("Success open control socket ~p~n",[CtrlSocket]);
-		{error, Reason} ->
-			io:format("Error open control socket ~p~n",[Reason]),
-			exit(socket_needed)
-	end,
+	%% register(dir_loop, spawn(fun() -> dir_loop() end)),
+	%% register(file_loop, spawn(fun() -> file_loop() end)),
+	S = start_listen(?ControlPort),
+	Pid = spawn(?MODULE,listen_CtrlSocket,[S]),
+	ok = gen_udp:controlling_process(S,Pid),
+	%% case gen_udp:open(?ControlPort, [binary,{active, false},{reuseaddr,true}]) of
+	%% 	{ok, CtrlSocket} ->
+	%% 		ets:insert(program, {data,{coontrol_socket,CtrlSocket}}),
+	%% 		inet:setopts(CtrlSocket,[{add_membership,{?DstIp,{0,0,0,0}}}]),
+	%% 		ListenPid = spawn(?MODULE,listen_ctrlsocket,[]),
+	%% 		ok = gen_udp:controlling_process(CtrlSocket,ListenPid),
+	%% 		io:format("Success open control socket ~p~n",[CtrlSocket]);
+	%% 		%% ListenPid = spawn(?MODULE, listen_ctrlsocket, [CtrlSocket]),
+	%% 		%% register(listen_ctrlsocket, spawn(fun() -> listen_ctrlsocket() end)),
+	%% 	{error, Reason} ->
+	%% 		io:format("Error open control socket ~p~n",[Reason]),
+	%% 		exit(socket_needed)
+	%% end,
 	
 	Dispatch = cowboy_router:compile([
 		{'_', [
@@ -48,6 +56,67 @@ start(_Type, _Args) ->
 	{ok, _} = cowboy:start_http(http, 100, [{port, 80}],
 		[{env, [{dispatch, Dispatch}]}]),
 	websocket_sup:start_link().
+
+start_listen(Port) ->
+	{ok, Socket} = gen_udp:open(Port, [binary,{active, false}]),
+	Socket.
+
+listen_CtrlSocket(S) ->
+	Data = gen_udp:recv(S, 0),
+	{ok,{_,_,Bin}} = Data,
+	io:format("Data ~p~n",[Bin]),
+	case erlang:binary_part(Bin,{0,4}) of
+		<<"file">> ->
+			File = erlang:binary_part(Bin,{4,erlang:iolist_size(Bin)-4}),
+			ets:insert(files, {File, {<<>>}}),
+			io:format("File ~p~n",[File]);
+		<<"port">> ->
+			Port = erlang:binary_to_integer(erlang:binary_part(Bin,{4,5})),
+			DataSocket = start_listen(Port),
+			Pid = spawn(?MODULE,data_writer,[]),
+			spawn(?MODULE,listen_DataSocket,[DataSocket,Pid,1]);
+			%% io:format("Port ~p~p~p~n",[Port,DataSocket,Pid]);
+		<<"size">> ->
+			Size = erlang:binary_part(Bin,{4,erlang:iolist_size(Bin)-4}),
+			io:format("Size ~p~n",[Size]);
+		Any ->
+			io:format("Unknown data in datasocket ~p~n",[Any])
+	end,
+	 
+	listen_CtrlSocket(S).
+
+listen_DataSocket(S,Pid,Seq) ->
+	{ok,{_,_,Bin}} = gen_udp:recv(S, 0),
+	Pid ! {Seq,Bin},
+	%% io:format("Data ~p~n",[Bin]),
+	listen_DataSocket(S,Pid,Seq+1).
+
+data_writer() ->
+	receive
+		{Seq, Data} ->
+			HH = ets:lookup(files,File),
+			io:format("Got Data ~p~n",[HH]),
+
+			%% file:write_file("C:/f1/1", Data, [append]),
+			data_writer()
+	end.
+
+
+
+%% Data = gen_udp:recv(S, 0),
+%% %% io:format("Data ~p~n",[Data]),
+%% {ok,{_,_,Bin}} = Data,
+%% Seq = erlang:binary_part(Bin,{0,8}),
+%% CheckSumLen = erlang:binary_part(Bin,{8,2}),
+%% Checksum = erlang:binary_part(Bin,{10,erlang:binary_to_integer(CheckSumLen)}),
+%% BinDataLen = erlang:byte_size(Bin),
+%% L = binary_to_integer(CheckSumLen)+10,
+
+%% %% io:format("Stat~p Data ~p~n",[inet:getstat(S), Data]),
+%% io:format("Seq ~p Len ~p CheckSum ~p Data ~p ~n",[Seq,CheckSumLen,Checksum,L]),
+%% BinData = erlang:binary_part(Bin,{L,BinDataLen-L}),
+%% file:write_file("C:/f1/s.exe", BinData, [append]),
+
 
 %% Point: Periodic scan files in ToDoFolder
 dir_loop() ->
