@@ -13,12 +13,13 @@
 -define(PacketSize, 1408).
 -define(ToDoFolder,"c:/f1").
 -define(CompletedFolder,"c:/f2").
+-define(ReceiveBuffer,32741824).
 
--export([start/2, stop/1, listen_CtrlSocket/1,listen_DataSocket/3,data_writer/0, dir_loop/0, file_loop/0, file_prep/0, read_loop/0,overhead/2,move_and_clean/1]).
+-export([start/2, stop/1, listen_CtrlSocket/1,listen_DataSocket/5,data_writer/0, dir_loop/0, file_loop/0, file_prep/0, read_loop/0,overhead/2,move_and_clean/1]).
 
 %% API.
 start(_Type, _Args) ->
-	ets:new(files, [public, named_table]),
+	ets:new(files, [public, named_table,bag]),
 	ets:new(program, [public, named_table]),
 	%% register(dir_loop, spawn(fun() -> dir_loop() end)),
 	%% register(file_loop, spawn(fun() -> file_loop() end)),
@@ -58,46 +59,76 @@ start(_Type, _Args) ->
 	websocket_sup:start_link().
 
 start_listen(Port) ->
-	{ok, Socket} = gen_udp:open(Port, [binary,{active, false}]),
+	{ok, Socket} = gen_udp:open(Port, [binary,{active, false},{reuseaddr,true},{recbuf,1638400}]),
+		%% ,{read_packets, ?ReceiveBuffer},{recbuf, ?ReceiveBuffer},{buffer, ?ReceiveBuffer*4}]),
 	Socket.
 
 listen_CtrlSocket(S) ->
 	Data = gen_udp:recv(S, 0),
 	{ok,{_,_,Bin}} = Data,
-	io:format("Data ~p~n",[Bin]),
-	case erlang:binary_part(Bin,{0,4}) of
-		<<"file">> ->
-			File = erlang:binary_part(Bin,{4,erlang:iolist_size(Bin)-4}),
-			ets:insert(files, {File, {<<>>}}),
-			io:format("File ~p~n",[File]);
-		<<"port">> ->
-			Port = erlang:binary_to_integer(erlang:binary_part(Bin,{4,5})),
-			DataSocket = start_listen(Port),
+	io:format("Control Socket received ~p~n",[Bin]),
+	case erlang:binary_part(Bin,{0,1}) of
+		<<"1">> ->
+			S1 = erlang:binary_to_integer(erlang:binary_part(Bin,{1,3})),
+			File = unicode:characters_to_list(erlang:binary_part(Bin,{4,S1}),unicode),
+			S2 = erlang:binary_to_integer(erlang:binary_part(Bin,{S1+4,12})),
+			Size = erlang:binary_to_integer(erlang:binary_part(Bin,{4+S1+12,S2})),
+			Port = erlang:binary_to_integer(erlang:binary_part(Bin,{4+S1+12+S2,5})),
+			io:format("HERE ~p~p~p~n",[File,Size,Port]),
+			ets:insert(files, {File, {packet,0},{data,<<>>}}),
+			%% DataSocket = start_listen(Port),
+			{ok, DataSocket2} = gen_udp:open(Port, [binary,{active, false},{reuseaddr,true},{recbuf,1638400}]),
 			Pid = spawn(?MODULE,data_writer,[]),
-			spawn(?MODULE,listen_DataSocket,[DataSocket,Pid,1]);
-			%% io:format("Port ~p~p~p~n",[Port,DataSocket,Pid]);
-		<<"size">> ->
-			Size = erlang:binary_part(Bin,{4,erlang:iolist_size(Bin)-4}),
-			io:format("Size ~p~n",[Size]);
-		Any ->
-			io:format("Unknown data in datasocket ~p~n",[Any])
+			spawn_link(?MODULE,listen_DataSocket,[DataSocket2,Pid,1,File,1]),
+			spawn_link(?MODULE,listen_DataSocket,[DataSocket2,Pid,1,File,2]),
+			spawn_link(?MODULE,listen_DataSocket,[DataSocket2,Pid,1,File,3]);
+		<<"0">> ->
+			S3 = erlang:binary_to_integer(erlang:binary_part(Bin,{1,3})),
+			File = unicode:characters_to_list(erlang:binary_part(Bin,{4,S3}),unicode),
+			S4 = erlang:binary_to_integer(erlang:binary_part(Bin,{S3+4,12})),
+			CRC = erlang:binary_to_integer(erlang:binary_part(Bin,{4+S3+12,S4})),
+			io:format("Receive EOF~p~p~n",[File,CRC])
+			%% io:format("Data ~p~n",[ets:lookup(files,File)])
 	end,
-	 
 	listen_CtrlSocket(S).
 
-listen_DataSocket(S,Pid,Seq) ->
-	{ok,{_,_,Bin}} = gen_udp:recv(S, 0),
-	Pid ! {Seq,Bin},
-	%% io:format("Data ~p~n",[Bin]),
-	listen_DataSocket(S,Pid,Seq+1).
+listen_DataSocket(S,Pid,Seq,File,N) ->
+	case gen_udp:recv(S, 0) of
+      {ok, {_Addr,_Port,Data}} ->
+           Pid ! {Data,N},
+           listen_DataSocket(S,Pid,Seq+1,File,N);
+      _ -> 
+      		erlang:yield(), 
+      		listen_DataSocket(S,Pid,Seq+1,File,N)
+    end.
+
 
 data_writer() ->
 	receive
-		{Seq, Data} ->
-			HH = ets:lookup(files,File),
-			io:format("Got Data ~p~n",[HH]),
+		{Data,1} ->
+			RecvSeq = erlang:binary_to_integer(erlang:binary_part(Data,{0,8})),
+			io:format("Got Data ~p~n",[RecvSeq]),
+			data_writer();
+		{Data,2} ->
+			RecvSeq = erlang:binary_to_integer(erlang:binary_part(Data,{0,8})),
+			io:format("Got Data ~p~n",[RecvSeq]),
+			%% case Seq =:= RecvSeq of
+			%% 	true ->
+			%% 		ets:insert(files, {File, {packet,Seq},{data,Data}});	
+			%% 	_ ->
+			%% 		ets:insert(files, {File, {packet,Seq},{data,Data},{bad}}),
+			%% 		io:format("Got bad Sequence. Mine: ~p Recv:~p~n",[Seq,RecvSeq]),
+			%% 		erlang:exit(fff)
+
+			%% end,
+
+
 
 			%% file:write_file("C:/f1/1", Data, [append]),
+			data_writer();
+		{Data,3} ->
+			RecvSeq = erlang:binary_to_integer(erlang:binary_part(Data,{0,8})),
+			io:format("Got Data ~p~n",[RecvSeq]),
 			data_writer()
 	end.
 
